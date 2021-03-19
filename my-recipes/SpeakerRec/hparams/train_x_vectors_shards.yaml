@@ -15,6 +15,11 @@ data_folder: /home/nik/workspace/phd/data/voxceleb/speechbrain/
 train_annotation: !ref <save_folder>/train.csv
 valid_annotation: !ref <save_folder>/dev.csv
 
+data_folder_shards: /home/nik/workspace/phd/data/voxceleb
+train_shards_folder: !ref <data_folder_shards>/train
+val_shards_folder: !ref <data_folder_shards>/val
+test_shards_folder: !ref <data_folder_shards>/test
+
 # Use the following links for the official voxceleb splits:
 # VoxCeleb1 (cleaned): https://www.robots.ox.ac.uk/~vgg/data/voxceleb/meta/veri_test2.txt
 # VoxCeleb1-H (cleaned): https://www.robots.ox.ac.uk/~vgg/data/voxceleb/meta/list_test_hard2.txt

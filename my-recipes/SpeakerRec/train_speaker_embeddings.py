@@ -17,9 +17,13 @@ Author
 import os
 import sys
 import random
+from pathlib import Path
+from typing import Dict
+
 import torch
 import torchaudio
 import speechbrain as sb
+import webdataset as wds
 from speechbrain.utils.data_utils import download_file
 from hyperpyyaml import load_hyperpyyaml
 from speechbrain.utils.distributed import run_on_main
@@ -200,8 +204,69 @@ def dataio_prep(hparams):
     return train_data, valid_data, label_encoder
 
 
-if __name__ == "__main__":
+def dataio_prep_shards(hparams):
+    print("### dataio_prep_shards ###")
 
+    train_shards_folder = hparams["train_shards_folder"]
+    val_shards_folder = hparams["val_shards_folder"]
+    test_shards_folder = hparams["test_shards_folder"]
+
+    print(train_shards_folder, type(train_shards_folder))
+    print(val_shards_folder)
+    print(test_shards_folder)
+
+    # define the mapping functions in the data pipeline
+    snt_len_sample = int(hparams["sample_rate"] * hparams["sentence_len"])
+
+    def audio_pipeline(sample_dict: Dict):
+        # unpack sample
+        key = sample_dict['__key__']
+        meta = sample_dict['meta.json']
+        audio_tensor = sample_dict['wav.pyd']
+
+        # determine what part of audio sample to use
+        audio_tensor = audio_tensor.squeeze()
+
+        if hparams["random_chunk"]:
+            start = random.randint(0, len(audio_tensor) - snt_len_sample - 1)
+            stop = start + snt_len_sample
+        else:
+            start = 0
+            stop = len(audio_tensor)
+
+        sig = audio_tensor[start:stop]
+
+        #
+
+        return {"sig": sig, "spk_id_encoded": ..., "id": key, 'speaker_id_idx': ...}
+
+    # define the WebDatasets
+    def find_urls(folder_path: str):
+        return [str(f) for f in Path(folder_path).glob("shard-*.tar*")]
+
+    train_data = (
+        wds.WebDataset(find_urls(train_shards_folder))
+        .shuffle(1000)
+        .decode("pil")
+        .map(audio_pipeline)
+    )
+
+    valid_data = (
+        wds.WebDataset(find_urls(val_shards_folder)).shuffle(1000).decode("pil")
+    )
+
+    print("train data")
+    for x in train_data:
+        print(x)
+        break
+
+    print("val data")
+    for x in valid_data:
+        print(x)
+        break
+
+
+if __name__ == "__main__":
     # This flag enables the inbuilt cudnn auto-tuner
     torch.backends.cudnn.benchmark = True
 
@@ -245,6 +310,9 @@ if __name__ == "__main__":
 
     # Dataset IO prep: creating Dataset objects and proper encodings for phones
     train_data, valid_data, label_encoder = dataio_prep(hparams)
+    train_data, valid_data, label_encoder = dataio_prep_shards(hparams)
+
+    exit()
 
     # Create experiment directory
     sb.core.create_experiment_directory(

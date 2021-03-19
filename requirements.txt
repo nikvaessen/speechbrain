@@ -10,3 +10,6 @@ torch>=1.7.1
 torchaudio>=0.7.2
 tqdm>=4.42.0
 huggingface_hub>=0.0.6
+
+webdataset~=0.1.54
+yaspin~=1.4.1
