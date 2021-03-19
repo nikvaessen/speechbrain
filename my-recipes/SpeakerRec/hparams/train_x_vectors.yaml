@@ -11,7 +11,7 @@ save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
 # Data files
-data_folder: /home/nik/workspace/phd/speechbrain/recipes/VoxCeleb/data/
+data_folder: /home/nik/workspace/phd/data/voxceleb/
 train_annotation: !ref <save_folder>/train.csv
 valid_annotation: !ref <save_folder>/dev.csv
 

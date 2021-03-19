@@ -1,14 +1,16 @@
 # ################################
-# Model: Speaker Verification Baseline using PLDA
-# Authors: Nauman Dawalatabad & Mirco Ravanelli 2020
+# Model: Speaker Verification Baseline
+# Authors: Hwidong Na 2020
+#          Mirco Ravanelli 2020
 # ################################
 
 seed: 1234
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 
 # Folders and train_log file
-data_folder: /home/nik/workspace/phd/speechbrain/recipes/VoxCeleb/data/ # use vox 1, vox2, or vox1+vox2 datasets
-output_folder: results/voxceleb1/speaker_verification_plda_xvectors
+voxceleb_source: /network/datasets/restricted/voxceleb_users/voxceleb/voxceleb1
+data_folder: /localscratch/voxceleb1
+output_folder: results/voxceleb1_2/speaker_verification_ecapa_big
 save_folder: !ref <output_folder>/save/
 device: 'cuda:0'
 
@@ -24,19 +26,23 @@ verification_file: https://www.robots.ox.ac.uk/~vgg/data/voxceleb/meta/veri_test
 # is downloaded from the speechbrain HuggingFace repository.
 # However, a local path pointing to a directory containing your checkpoints may also be specified
 # instead (see pretrainer below)
-pretrain_path: /home/nik/workspace/phd/speechbrain/recipes/VoxCeleb/SpeakerRec/results/xvect_augment/1986/save/CKPT+2021-03-17+15-56-26+00
+pretrain_path: speechbrain/spkrec-ecapa-voxceleb
 
 # csv files
 train_data: !ref <save_folder>/train.csv
 enrol_data: !ref <save_folder>/enrol.csv
 test_data: !ref <save_folder>/test.csv
 
-batch_size: 128
-n_train_snts: 300000 # used for normalization stats
+batch_size: 32
+score_norm: 's-norm' # z-norm t-norm s-norm none
+cohort_size: 20000 # amount of imposter utterances in normalization cohort
+n_train_snts: 400000 # used for normalization stats
 
 # Feature parameters
-n_mels: 24
-emb_dim: 512
+n_mels: 80
+left_frames: 0
+right_frames: 0
+deltas: False
 
 # Dataloader options
 train_dataloader_opts:
@@ -48,7 +54,6 @@ enrol_dataloader_opts:
 test_dataloader_opts:
     batch_size: !ref <batch_size>
 
-# Model params
 compute_features: !new:speechbrain.lobes.features.Fbank
     n_mels: !ref <n_mels>
 
@@ -56,29 +61,21 @@ mean_var_norm: !new:speechbrain.processing.features.InputNormalization
     norm_type: sentence
     std_norm: False
 
-embedding_model: !new:speechbrain.lobes.models.Xvector.Xvector
-    in_channels: !ref <n_mels>
-    activation: !name:torch.nn.LeakyReLU
-    tdnn_blocks: 5
-    tdnn_channels: [512, 512, 512, 512, 1500]
-    tdnn_kernel_sizes: [5, 3, 3, 1, 1]
-    tdnn_dilations: [1, 2, 3, 1, 1]
-    lin_neurons: !ref <emb_dim>
+embedding_model: !new:speechbrain.lobes.models.ECAPA_TDNN.ECAPA_TDNN
+    input_size: !ref <n_mels>
+    channels: [1024, 1024, 1024, 1024, 3072]
+    kernel_sizes: [5, 3, 3, 3, 1]
+    dilations: [1, 2, 3, 4, 1]
+    attention_channels: 128
+    lin_neurons: 192
 
 mean_var_norm_emb: !new:speechbrain.processing.features.InputNormalization
     norm_type: global
     std_norm: False
 
-compute_plda: !new:speechbrain.processing.PLDA_LDA.PLDA
-    rank_f: 100
-    nb_iter: 10
-    scaling_factor: 0.05
-
 pretrainer: !new:speechbrain.utils.parameter_transfer.Pretrainer
     collect_in: !ref <save_folder>
     loadables:
         embedding_model: !ref <embedding_model>
-        mean_var_norm_emb: !ref <mean_var_norm_emb>
     paths:
         embedding_model: !ref <pretrain_path>/embedding_model.ckpt
-        mean_var_norm_emb: !ref <pretrain_path>/mean_var_norm_emb.ckpt
