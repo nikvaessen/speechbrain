@@ -7,7 +7,7 @@ seed: 1234
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 
 # Folders and train_log file
-data_folder: /home/nik/workspace/phd/speechbrain/recipes/VoxCeleb/data/ # use vox 1, vox2, or vox1+vox2 datasets
+data_folder: /localscratch/voxceleb1_2  # use vox 1, vox2, or vox1+vox2 datasets
 output_folder: results/voxceleb1/speaker_verification_plda_xvectors
 save_folder: !ref <output_folder>/save/
 device: 'cuda:0'
@@ -24,7 +24,7 @@ verification_file: https://www.robots.ox.ac.uk/~vgg/data/voxceleb/meta/veri_test
 # is downloaded from the speechbrain HuggingFace repository.
 # However, a local path pointing to a directory containing your checkpoints may also be specified
 # instead (see pretrainer below)
-pretrain_path: /home/nik/workspace/phd/speechbrain/recipes/VoxCeleb/SpeakerRec/results/xvect_augment/1986/save/CKPT+2021-03-17+15-56-26+00
+pretrain_path: speechbrain/spkrec-xvect-voxceleb
 
 # csv files
 train_data: !ref <save_folder>/train.csv

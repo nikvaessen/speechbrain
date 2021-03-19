@@ -4,14 +4,14 @@
 # ################################
 
 # Basic parameters
-seed: 1987
+seed: 1986
 __set_seed: !apply:torch.manual_seed [!ref <seed>]
 output_folder: !ref results/xvect_augment/<seed>
 save_folder: !ref <output_folder>/save
 train_log: !ref <output_folder>/train_log.txt
 
 # Data files
-data_folder: /home/nik/workspace/phd/speechbrain/recipes/VoxCeleb/data/
+data_folder: !PLACEHOLDER  # e.g. /path/to/Voxceleb
 train_annotation: !ref <save_folder>/train.csv
 valid_annotation: !ref <save_folder>/dev.csv
 
@@ -28,7 +28,7 @@ ckpt_interval_minutes: 15 # save checkpoint every N min
 
 # Training parameters
 number_of_epochs: 20
-batch_size: 32
+batch_size: 256
 lr: 0.001
 lr_final: 0.0001
 
@@ -44,12 +44,12 @@ right_frames: 0
 deltas: False
 
 # Number of speakers
-out_n_neurons: 1211 #1211 for vox1  # 5994 for vox2, 7205 for vox1+vox2
+out_n_neurons: 7205 #1211 for vox1  # 5994 for vox2, 7205 for vox1+vox2
 
 dataloader_options:
     batch_size: !ref <batch_size>
     shuffle: !ref <shuffle>
-    num_workers: 8
+    num_workers: 0
 
 # Functions
 compute_features: !new:speechbrain.lobes.features.Fbank

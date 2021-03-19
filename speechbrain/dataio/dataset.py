@@ -362,9 +362,6 @@ class DynamicItemDataset(Dataset):
     ):
         """Load a data prep CSV file and create a Dataset based on it."""
         data = load_data_csv(csv_path, replacements)
-        print(csv_path)
-
-        print(len(data))
         return cls(data, dynamic_items, output_keys)
 
     @classmethod
@@ -404,10 +401,6 @@ class FilteredSortedDynamicItemDataset(DynamicItemDataset):
         cls, csv_path, replacements={}, dynamic_items=None, output_keys=None
     ):
         raise TypeError("Cannot create SubsetDynamicItemDataset directly!")
-
-
-class DynamicIterableItemDataset():
-    pass
 
 
 def add_dynamic_item(datasets, func, takes=None, provides=None):
