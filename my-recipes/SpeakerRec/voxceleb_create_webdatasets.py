@@ -107,6 +107,7 @@ def write_shards(
         "speaker_id_to_idx": speaker_id_to_idx,
         "youtube_id_per_speaker": youtube_id_per_speaker,
         "sample_keys_per_speaker": sample_keys_per_speaker,
+        "num_data_samples": len(data_tuples)
     }
 
     with (shards_path / "meta.json").open("w") as f:

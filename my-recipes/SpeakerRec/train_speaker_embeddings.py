@@ -14,6 +14,7 @@ Author
     * Hwidong Na 2020
     * Nauman Dawalatabad 2020
 """
+import json
 import os
 import sys
 import random
@@ -24,8 +25,9 @@ import torch
 import torchaudio
 import speechbrain as sb
 import webdataset as wds
-from speechbrain.utils.data_utils import download_file
 from hyperpyyaml import load_hyperpyyaml
+
+from speechbrain.dataio.batch import PaddedBatch
 from speechbrain.utils.distributed import run_on_main
 
 
@@ -42,7 +44,6 @@ class SpeakerBrain(sb.core.Brain):
         wavs, lens = batch.sig
 
         if stage == sb.Stage.TRAIN:
-
             # Applying the augmentation pipeline
             wavs_aug_tot = []
             wavs_aug_tot.append(wavs)
@@ -130,99 +131,24 @@ class SpeakerBrain(sb.core.Brain):
             )
 
 
-def dataio_prep(hparams):
-    "Creates the datasets and their data processing pipelines."
-
-    data_folder = hparams["data_folder"]
-
-    # 1. Declarations:
-    train_data = sb.dataio.dataset.DynamicItemDataset.from_csv(
-        csv_path=hparams["train_annotation"],
-        replacements={"data_root": data_folder},
-    )
-
-    valid_data = sb.dataio.dataset.DynamicItemDataset.from_csv(
-        csv_path=hparams["valid_annotation"],
-        replacements={"data_root": data_folder},
-    )
-
-    datasets = [train_data, valid_data]
-    label_encoder = sb.dataio.encoder.CategoricalEncoder()
-
-    snt_len_sample = int(hparams["sample_rate"] * hparams["sentence_len"])
-
-    # 2. Define audio pipeline:
-    @sb.utils.data_pipeline.takes("wav", "start", "stop", "duration")
-    @sb.utils.data_pipeline.provides("sig")
-    def audio_pipeline(wav, start, stop, duration):
-        if hparams["random_chunk"]:
-            duration_sample = int(duration * hparams["sample_rate"])
-            start = random.randint(0, duration_sample - snt_len_sample - 1)
-            stop = start + snt_len_sample
-        else:
-            start = int(start)
-            stop = int(stop)
-        num_frames = stop - start
-        sig, fs = torchaudio.load(
-            wav, num_frames=num_frames, frame_offset=start
-        )
-        sig = sig.transpose(0, 1).squeeze(1)
-        return sig
-
-    sb.dataio.dataset.add_dynamic_item(datasets, audio_pipeline)
-
-    # 3. Define text pipeline:
-    @sb.utils.data_pipeline.takes("spk_id")
-    @sb.utils.data_pipeline.provides("spk_id", "spk_id_encoded")
-    def label_pipeline(spk_id):
-        yield spk_id
-        spk_id_encoded = label_encoder.encode_sequence_torch([spk_id])
-        yield spk_id_encoded
-
-    sb.dataio.dataset.add_dynamic_item(datasets, label_pipeline)
-
-    # 3. Fit encoder:
-    # Load or compute the label encoder (with multi-GPU DDP support)
-    lab_enc_file = os.path.join(hparams["save_folder"], "label_encoder.txt")
-    label_encoder.load_or_create(
-        path=lab_enc_file, from_didatasets=[train_data], output_key="spk_id",
-    )
-
-    # 4. Set output:
-    sb.dataio.dataset.set_output_keys(datasets, ["id", "sig", "spk_id_encoded"])
-
-    print("train data")
-    for x in train_data:
-        print(x)
-        break
-
-    print("val data")
-    for x in valid_data:
-        print(x)
-        break
-
-    return train_data, valid_data, label_encoder
-
-
 def dataio_prep_shards(hparams):
-    print("### dataio_prep_shards ###")
+    train_shards_folder = Path(hparams["train_shards_folder"])
+    val_shards_folder = Path(hparams["val_shards_folder"])
 
-    train_shards_folder = hparams["train_shards_folder"]
-    val_shards_folder = hparams["val_shards_folder"]
-    test_shards_folder = hparams["test_shards_folder"]
-
-    print(train_shards_folder, type(train_shards_folder))
-    print(val_shards_folder)
-    print(test_shards_folder)
+    # load the meta info json file
+    with (train_shards_folder / "meta.json").open("r") as f:
+        train_meta = json.load(f)
+    with (val_shards_folder / "meta.json").open("r") as f:
+        val_meta = json.load(f)
 
     # define the mapping functions in the data pipeline
     snt_len_sample = int(hparams["sample_rate"] * hparams["sentence_len"])
 
     def audio_pipeline(sample_dict: Dict):
         # unpack sample
-        key = sample_dict['__key__']
-        meta = sample_dict['meta.json']
-        audio_tensor = sample_dict['wav.pyd']
+        key = sample_dict["__key__"]
+        meta = sample_dict["meta.json"]
+        audio_tensor = sample_dict["wav.pyd"]
 
         # determine what part of audio sample to use
         audio_tensor = audio_tensor.squeeze()
@@ -236,34 +162,41 @@ def dataio_prep_shards(hparams):
 
         sig = audio_tensor[start:stop]
 
-        #
+        # determine the speaker label of the sample
+        spk_id_idx = torch.LongTensor([meta["speaker_id_idx"]])
 
-        return {"sig": sig, "spk_id_encoded": ..., "id": key, 'speaker_id_idx': ...}
+        return {
+            "sig": sig,
+            "spk_id_encoded": spk_id_idx,
+            "id": key,
+        }
 
     # define the WebDatasets
     def find_urls(folder_path: str):
-        return [str(f) for f in Path(folder_path).glob("shard-*.tar*")]
+        return [str(f) for f in sorted(Path(folder_path).glob("shard-*.tar*"))]
 
     train_data = (
-        wds.WebDataset(find_urls(train_shards_folder))
+        wds.WebDataset(
+            find_urls(train_shards_folder),
+            length=train_meta["num_data_samples"],
+        )
         .shuffle(1000)
         .decode("pil")
         .map(audio_pipeline)
     )
+    print(f"training data consist of {train_meta['num_data_samples']} samples")
 
     valid_data = (
-        wds.WebDataset(find_urls(val_shards_folder)).shuffle(1000).decode("pil")
+        wds.WebDataset(
+            find_urls(val_shards_folder), length=val_meta["num_data_samples"]
+        )
+        .shuffle(1000)
+        .decode("pil")
+        .map(audio_pipeline)
     )
+    print(f"validation data consist of {val_meta['num_data_samples']} samples")
 
-    print("train data")
-    for x in train_data:
-        print(x)
-        break
-
-    print("val data")
-    for x in valid_data:
-        print(x)
-        break
+    return train_data, valid_data
 
 
 if __name__ == "__main__":
@@ -273,10 +206,6 @@ if __name__ == "__main__":
     # CLI:
     hparams_file, run_opts, overrides = sb.parse_arguments(sys.argv[1:])
 
-    print("hprams_file", hparams_file)
-    print("run_opts", run_opts)
-    print("overrides", overrides, type(overrides))
-
     # Initialize ddp (useful only for multi-GPU DDP training)
     sb.utils.distributed.ddp_init_group(run_opts)
 
@@ -284,35 +213,11 @@ if __name__ == "__main__":
     with open(hparams_file) as fin:
         hparams = load_hyperpyyaml(fin, overrides)
 
-    for k, v in hparams.items():
-        print(f"### {k} ###\n", v)
-
-    # Download verification list (to exlude verification sentences from train)
-    veri_file_path = os.path.join(
-        hparams["save_folder"], os.path.basename(hparams["verification_file"])
-    )
-    download_file(hparams["verification_file"], veri_file_path)
-
-    # Dataset prep (parsing VoxCeleb and annotation into csv files)
-    from voxceleb_prepare import prepare_voxceleb  # noqa
-
-    run_on_main(
-        prepare_voxceleb,
-        kwargs={
-            "data_folder": hparams["data_folder"],
-            "save_folder": hparams["save_folder"],
-            "verification_pairs_file": veri_file_path,
-            "splits": ["train", "dev"],
-            "split_ratio": [90, 10],
-            "seg_dur": int(hparams["sentence_len"]) * 100,
-        },
-    )
-
     # Dataset IO prep: creating Dataset objects and proper encodings for phones
-    train_data, valid_data, label_encoder = dataio_prep(hparams)
-    train_data, valid_data, label_encoder = dataio_prep_shards(hparams)
+    train_data_wds, valid_data_wds = dataio_prep_shards(hparams)
 
-    exit()
+    # add collate_fn to dataloader options
+    hparams['dataloader_options']['collate_fn'] = PaddedBatch
 
     # Create experiment directory
     sb.core.create_experiment_directory(
@@ -333,8 +238,8 @@ if __name__ == "__main__":
     # Training
     speaker_brain.fit(
         speaker_brain.hparams.epoch_counter,
-        train_data,
-        valid_data,
+        train_data_wds,
+        valid_data_wds,
         train_loader_kwargs=hparams["dataloader_options"],
         valid_loader_kwargs=hparams["dataloader_options"],
     )
